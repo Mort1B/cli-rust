@@ -28,18 +28,9 @@ pub fn add_task(jounal_path: PathBuf, task: Task) -> Result<()> {
         .create(true)
         .open(journal_path)?;
 
-    let mut tasks: Vec<Task> = match serde_json::from_reader(&file) {
-        Ok(tasks) => tasks,
-        Err(e) if e.is_eof() => Vec::new(),
-        Err(e) => Err(e)?,
-    };
-    // rewind the file after reading form it.
-    file.seek(SeekFrom::Start(0))?;
-
-    //Write modified dtask list back into the file
+    let mut tasks = collect_tasks(&file)?;
     tasks.push(task);
     serde_json::to_writer(file, &tasks)?;
-
     Ok(())
 }
 
@@ -51,11 +42,7 @@ pub fn complete_task(jounal_path: PathBuf, task_position: usize) -> Result<()> {
         .open(jounal_path)?;
 
     //consume firel's contents as vector of tasks
-    let tasks = match serde_json::from_reader(file) {
-        Ok(tasks) => tasks,
-        Err(e) if e.is_eof() => Vec::new(),
-        Err(e) => Err(e)?,
-    };
+    let mut tasks = collect_tasks(&file)?;
 
     if task_position == 0 || task_position > tasks.len() {
         return Err(Error::new(ErrorKind::InvalidInput, "Invalid task ID"));
@@ -63,9 +50,39 @@ pub fn complete_task(jounal_path: PathBuf, task_position: usize) -> Result<()> {
     tasks.remove(task_position - 1);
 
     //Rewind and truncate the file
-    file.seek(SeekFrom::Start(0))?;
     file.set_len(0)?;
 
     //Write the modified task list back into the file
     serde_json::to_writer(file, &tasks)?;
+    Ok(())
+}
+
+fn collect_tasks(mut file: &File) -> Result<Vec<Task>> {
+    file.seek(SeekFrom::Start(0))?;
+    let tasks = match serde_json::from_reader(file) {
+        Ok(tasks) => tasks,
+        Err(e) if e.is_eof() => Vec::new(),
+        Err(e) => Err(e)?,
+    };
+    file.seek(SeekFrom::Start(0))?;
+    Ok(tasks)
+}
+
+pub fn list_tasks(jounal_path: PathBuf) -> Result<()> {
+    //Open file
+    let file = OpenOptions::new().read(true).open(journal_path)?;
+    // parse file => collect tasks
+    let tasks = collect_tasks(&file)?;
+
+    //enumerate and display tasks
+    if tasks.is_empty() {
+        println!("Task list is empty!");
+    } else {
+        let mut order: u32 = 1;
+        for task in tasks {
+            println!("{}: {}", order, task);
+            order += 1;
+        }
+    }
+    Ok(())
 }
